@@ -1,0 +1,586 @@
+{
+  "name": "Recruiter Email Triage",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "q": "newer_than:30d (subject:(application OR interview OR position OR opportunity OR status) OR \"thank you for applying\")"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        384,
+        -32
+      ],
+      "id": "99616a9b-9258-4ade-8f88-4ede3f2a46fd",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "7ibgsMEiBTiEo3sB",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Helper: HTML -> text\nconst htmlToText = (html) => {\n  if (!html) return '';\n  return html\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/(p|div|li|tr|h\\d)>/gi, '\\n')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nreturn $input.all().map(item => {\n  const subject = item.json.Subject || item.json.subject || '';\n  const from    = item.json.From    || item.json.from    || '';\n  const plain   = item.json.textPlain || '';\n  const html    = item.json.textHtml  || '';\n  const body    = plain || htmlToText(html) || item.json.snippet || '';\n\n  return {\n    json: {\n      ...item.json, // <-- keeps Gmail's original { id, threadId, ... }\n      from,\n      subject,\n      cleanBody: body,\n      combinedText: `${subject}\\n${body}`.toLowerCase(),\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -32
+      ],
+      "id": "c7383dc9-7fca-49a2-9ddc-8417a544c5d0",
+      "name": "Normalize Email"
+    },
+    {
+      "parameters": {
+        "jsCode": "const POS = [\n  /invite (you )?to interview/i,\n  /schedule (a )?(call|interview)/i,\n  /next steps/i,\n  /phone screen/i,\n  /assessment (link|test|invite)/i,\n  /coding exercise/i,\n  /please pick a time/i,\n  /calendar link/i,\n  /move forward/i,\n  /proceed with/i,\n  /offer/i\n];\n\nconst REJ = [\n  /not (be )?moving forward/i,\n  /decided not to proceed/i,\n  /unfortunately/i,\n  /regret to inform/i,\n  /no longer under consideration/i,\n  /position has been filled/i,\n  /after careful consideration/i,\n  /won't be proceeding|will not be proceeding/i\n];\n\nconst score = (text, arr) => arr.reduce((s, r) => s + (r.test(text) ? 1 : 0), 0);\n\nreturn $input.all().map(item => {\n  const t = item.json.combinedText || '';\n  const pos = score(t, POS);\n  const rej = score(t, REJ);\n\n  let label = 'needs_review';\n  let confidence = 0.5;\n\n  if (pos >= 1 && rej === 0) { label = 'positive';   confidence = Math.min(0.95, 0.7 + 0.1*(pos-1)); }\n  else if (rej >= 1 && pos === 0) { label = 'rejection'; confidence = Math.min(0.95, 0.7 + 0.1*(rej-1)); }\n  else if (pos >= 1 && rej >= 1) { label = 'needs_review'; confidence = 0.6; }\n\n  return { json: { ...item.json, ruleLabel: label, ruleConfidence: confidence } };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        -32
+      ],
+      "id": "9dc3499c-ab03-4f77-8bb8-13750def877f",
+      "name": "Rule Classify"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.ruleLabel}}",
+                    "rightValue": "positive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "9285487c-2da6-42d5-b86b-b88f65e796df"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "357f0229-5649-4493-b50c-b309f89f848b",
+                    "leftValue": "={{$json.ruleLabel}}",
+                    "rightValue": "rejection",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a56191a5-c427-474e-b87d-878a6874f836",
+                    "leftValue": "={{$json.ruleLabel}}",
+                    "rightValue": "needs_review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1328,
+        -48
+      ],
+      "id": "44fbbcf5-2d20-44c6-9d98-e76c1cc1695d",
+      "name": "RouteByLabel"
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "addLabels",
+        "threadId": "={{$json.threadId}}",
+        "labelIds": [
+          "Label_2915766688313706127"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1760,
+        -224
+      ],
+      "id": "d37ea3dc-7def-432a-a46f-d5627ea60d0a",
+      "name": "Lable Positive",
+      "webhookId": "d95fe851-58f0-40fc-a890-b8a70c17dcfe",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "7ibgsMEiBTiEo3sB",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "addLabels",
+        "threadId": "={{$json.threadId}}",
+        "labelIds": [
+          "Label_2620932045374548319"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1760,
+        -32
+      ],
+      "id": "06562a9b-b986-4606-9e99-ac33a23ea6d2",
+      "name": "Lable negative",
+      "webhookId": "c0fb63e8-a1ca-4366-a66d-a548c5d307bd",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "7ibgsMEiBTiEo3sB",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "addLabels",
+        "threadId": "={{$json.threadId}}",
+        "labelIds": [
+          "Label_216101724294661182"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1760,
+        144
+      ],
+      "id": "df642aa6-cd82-4447-8d65-48ece5031740",
+      "name": "Lable Review",
+      "webhookId": "85289eac-278c-4ff3-9595-a78c34a866b7",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "7ibgsMEiBTiEo3sB",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "190PewKXM-q2uWElTgsvbOQpDrUP2cORvk0iumHF7Sa4",
+          "mode": "list",
+          "cachedResultName": "Recruiter Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/190PewKXM-q2uWElTgsvbOQpDrUP2cORvk0iumHF7Sa4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/190PewKXM-q2uWElTgsvbOQpDrUP2cORvk0iumHF7Sa4/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{$now.setZone('America/Los_Angeles').toISODate()}}",
+            "From": "={{$json[\"from\"]}}",
+            "Subject": "={{$json[\"subject\"]}}",
+            "Label": "={{$json[\"ruleLabel\"]}}",
+            "Confidence": "={{$json[\"ruleConfidence\"]}}",
+            "Snippet": "={{$json[\"cleanBody\"]}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "From",
+              "displayName": "From",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Label",
+              "displayName": "Label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Confidence",
+              "displayName": "Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Snippet",
+              "displayName": "Snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2784,
+        128
+      ],
+      "id": "594bce91-d5d9-4114-8a81-454a8b0c2ed6",
+      "name": "Recruiter Log",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "tjPKf0Yj6BbZpl3x",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2544,
+        128
+      ],
+      "id": "841af984-cefd-452b-8e59-ff521e2f5980",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "062ba7d9-4241-4772-9f0d-6492efb4bf3b",
+              "name": "routePath",
+              "value": "Rejection",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1968,
+        -32
+      ],
+      "id": "d0583cf3-4ca9-43ca-9b9b-05f2770f572d",
+      "name": "Rejection"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "daf9c5a3-1e1d-4f67-82e8-74dccd4f800b",
+              "name": "routePath",
+              "value": "Positive",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1968,
+        -224
+      ],
+      "id": "f1a9c3fa-f1da-458f-b04d-29811f190864",
+      "name": "Positive"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6c2b17ec-53b7-49ed-80c5-4eb3d6b7b0e6",
+              "name": "routePath",
+              "value": "Needs Review",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1968,
+        144
+      ],
+      "id": "7409e642-e000-470f-84fc-b24aaede35ef",
+      "name": "NeedsReview"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2272,
+        -128
+      ],
+      "id": "658d39ef-ada9-43e5-bf94-5b55f0b570d7",
+      "name": "Merge1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Email": {
+      "main": [
+        [
+          {
+            "node": "Rule Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rule Classify": {
+      "main": [
+        [
+          {
+            "node": "RouteByLabel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByLabel": {
+      "main": [
+        [
+          {
+            "node": "Lable Positive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lable negative",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lable Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lable Review": {
+      "main": [
+        [
+          {
+            "node": "NeedsReview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Recruiter Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lable Positive": {
+      "main": [
+        [
+          {
+            "node": "Positive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lable negative": {
+      "main": [
+        [
+          {
+            "node": "Rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Positive": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rejection": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "NeedsReview": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "20cd5b87-65d7-400c-a094-a2f7675454f8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cdd63a45c30b47c991ff9903bcbda8cb004ea97536addd931a4e97b653e08c8c"
+  },
+  "id": "HwrQSMJOLIluNmvl",
+  "tags": []
+}

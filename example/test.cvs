@@ -1,0 +1,4 @@
+Timestamp,From,Subject,Snippet,finalLabel,finalConfidence,routePath,GmailId,ThreadId
+2025-09-17T09:00:00Z,recruiter@techfirm.com,"We’d like to invite you to interview","Please pick a time for a phone screen this week.",Positive,0.92,Positive,T1,TH1
+2025-09-17T09:05:00Z,talent@startupjobs.io,"Application Update","Unfortunately, we will not be moving forward with your application at this time.",Rejection,0.97,Rejection,T2,TH2
+2025-09-17T09:10:00Z,hiring@stealthcompany.org,"Quick question about your background","We are still reviewing applications and will get back soon.",Needs Review,0.55,Needs Review,T3,TH3

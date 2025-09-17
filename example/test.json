@@ -1,0 +1,29 @@
+[
+  {
+    "id": "T1",
+    "threadId": "TH1",
+    "from": "recruiter@techfirm.com",
+    "subject": "We’d like to invite you to interview",
+    "snippet": "Please pick a time for a phone screen this week.",
+    "finalLabel": "Positive",
+    "finalConfidence": 0.92
+  },
+  {
+    "id": "T2",
+    "threadId": "TH2",
+    "from": "talent@startupjobs.io",
+    "subject": "Application Update",
+    "snippet": "Unfortunately, we will not be moving forward with your application at this time.",
+    "finalLabel": "Rejection",
+    "finalConfidence": 0.97
+  },
+  {
+    "id": "T3",
+    "threadId": "TH3",
+    "from": "hiring@stealthcompany.org",
+    "subject": "Quick question about your background",
+    "snippet": "We are still reviewing applications and will get back soon.",
+    "finalLabel": "Needs Review",
+    "finalConfidence": 0.55
+  }
+]
